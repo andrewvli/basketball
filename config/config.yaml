@@ -1,0 +1,17 @@
+detection:
+  model_path: models/
+
+tracking: {}
+
+team_classification:
+  n_teams: 2
+
+jersey_recognition:
+  model_path: models/
+
+court_mapping:
+  n_keypoints: 33
+  keypoint_confidence_threshold: 0.5
+
+trajectory:
+  mad_threshold: null
