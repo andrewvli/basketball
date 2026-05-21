@@ -1,16 +1,18 @@
 """
 Example usage:
     python rename_clips.py --prefix pnr
-    python rename_clips.py --prefix pnr --dir clips
+    python rename_clips.py --prefix pnr --dir clips --shuffle False
 """
 
 from pathlib import Path
 import os
 import argparse
+import random
 
-def renameClips(dir, prefix):
+def renameClips(dir, prefix, shuffle):
     """
     Renames clips in the specified directory with the given prefix (e.g. 'pnr_0001, pnr_0002, ...').
+    Option to shuffle the clips, so that the last n can be deleted when balancing class sizes.
 
     Returns:
         int: Total videos in directory.
@@ -18,13 +20,24 @@ def renameClips(dir, prefix):
     total = 0
 
     directory = Path(dir)
-    videos = sorted(list(directory.glob("*.mp4")))
+    videos = list(directory.glob("*.mp4"))
+    if shuffle:
+        random.shuffle(videos)
+    else:
+        videos = sorted(videos)
     total = len(videos)
 
-    for i, video_file in enumerate(videos):
-        new_name = f'{prefix}_{i:05d}.mp4'
-        new_path = directory / new_name
-        video_file.rename(new_path)
+    # temporary names to avoid overwriting
+    temp_paths = []
+    for i, video in enumerate(videos):
+        temp = directory / f"__tmp_{i}.mp4"
+        video.rename(temp)
+        temp_paths.append(temp)
+
+    # final names
+    for i, temp in enumerate(temp_paths, start=1):
+        final = directory / f"{prefix}_{i:05d}.mp4"
+        temp.rename(final)
 
     return total
 
@@ -43,12 +56,18 @@ def parseArgs():
         help="clip directory"
     )
 
+    parser.add_argument(
+        "--shuffle",
+        default=True,
+        help="whether or not to shuffle clips"
+    )
+
     return parser.parse_args()
 
 
 def main():
     args = parseArgs()
-    total = renameClips(args.dir, args.prefix)
+    total = renameClips(args.dir, args.prefix, args.shuffle)
     print(f'{total} clips renamed with prefix {args.prefix}.')
 
 if __name__ == "__main__":
