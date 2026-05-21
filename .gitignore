@@ -1,3 +1,4 @@
+.venv/
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -9,3 +10,6 @@ models/
 *.pth
 *.ckpt
 .DS_Store
+videos/
+clips_archive/
+clips/

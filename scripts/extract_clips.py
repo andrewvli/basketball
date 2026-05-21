@@ -9,7 +9,7 @@ import yt_dlp
 from pathlib import Path
 import argparse
 from scenedetect import open_video, SceneManager
-from scenedetect.detectors import ContentDetector, AdaptiveDetector, HashDetector
+from scenedetect.detectors import ContentDetector, AdaptiveDetector
 from scenedetect.video_splitter import split_video_ffmpeg
 import time
 
@@ -71,9 +71,34 @@ def splitVideo(video_path, outdir, prefix, threshold=50.0,
     video = open_video(str(video_path))
 
     # configure scene manager
+    # min_scene_len merges sub-3s "scenes" into the previous one, which collapses
+    # the spurious cut-and-cut-back pairs caused by camera flashes / bright frames.
+    min_scene_len = 90  # frames; ~3s @ 30 fps
+
+    # Down-weight luma heavily: camera flashes are pure luma events with little
+    # hue/sat change, so reducing delta_lum to 0.2 makes the detector nearly
+    # blind to brightness spikes while still catching real shot changes (which
+    # alter hue and saturation too). Defaults are (hue=1.0, sat=1.0, lum=1.0, edges=0.0).
+    flash_tolerant_weights = ContentDetector.Components(
+        delta_hue=1.0,
+        delta_sat=1.0,
+        delta_lum=0.2,
+        delta_edges=0.0,
+    )
+
+    # Use only AdaptiveDetector: it normalises against a rolling average, making
+    # it naturally robust to isolated bright frames. ContentDetector (removed) is
+    # more trigger-happy on single-frame anomalies and was adding false cuts.
+    # Flash resistance comes from delta_lum=0.2 and min_scene_len, so thresholds
+    # can be kept sensitive: adaptive_threshold=3.0,
+    # min_content_val=15.0 (default) to catch real cuts without being restrictive.
     scene_manager = SceneManager()
-    scene_manager.add_detector(AdaptiveDetector(adaptive_threshold=3.0))
-    scene_manager.add_detector(ContentDetector(threshold=75.0)) # higher = ignores flashes
+    scene_manager.add_detector(AdaptiveDetector(
+        adaptive_threshold=3.0,
+        min_content_val=15.0,
+        min_scene_len=min_scene_len,
+        weights=flash_tolerant_weights,
+    ))
 
     # detect scenes
     scene_manager.detect_scenes(video)
