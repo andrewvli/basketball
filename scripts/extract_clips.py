@@ -8,6 +8,7 @@ Example usage:
 import yt_dlp
 from pathlib import Path
 import argparse
+import cv2
 from scenedetect import open_video, SceneManager
 from scenedetect.detectors import ContentDetector, AdaptiveDetector
 from scenedetect.video_splitter import split_video_ffmpeg
@@ -73,7 +74,13 @@ def splitVideo(video_path, outdir, prefix, threshold=50.0,
     # configure scene manager
     # min_scene_len merges sub-3s "scenes" into the previous one, which collapses
     # the spurious cut-and-cut-back pairs caused by camera flashes / bright frames.
-    min_scene_len = 90  # frames; ~3s @ 30 fps
+    # Compute dynamically from the video's actual frame rate so the 3s floor holds
+    # regardless of whether the source is 24, 30, 50, or 60 fps.
+    cap = cv2.VideoCapture(str(video_path))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    cap.release()
+    min_scene_len = int(fps * 3)  # 3 seconds worth of frames
+    print(f'Detected {fps:.2f} fps → min_scene_len={min_scene_len} frames')
 
     # Down-weight luma heavily: camera flashes are pure luma events with little
     # hue/sat change, so reducing delta_lum to 0.2 makes the detector nearly
@@ -89,12 +96,11 @@ def splitVideo(video_path, outdir, prefix, threshold=50.0,
     # Use only AdaptiveDetector: it normalises against a rolling average, making
     # it naturally robust to isolated bright frames. ContentDetector (removed) is
     # more trigger-happy on single-frame anomalies and was adding false cuts.
-    # Flash resistance comes from delta_lum=0.2 and min_scene_len, so thresholds
-    # can be kept sensitive: adaptive_threshold=3.0,
+    # Flash resistance comes from delta_lum=0.2 and min_scene_len,
     # min_content_val=15.0 (default) to catch real cuts without being restrictive.
     scene_manager = SceneManager()
     scene_manager.add_detector(AdaptiveDetector(
-        adaptive_threshold=3.0,
+        adaptive_threshold=3.5,
         min_content_val=15.0,
         min_scene_len=min_scene_len,
         weights=flash_tolerant_weights,
@@ -103,6 +109,14 @@ def splitVideo(video_path, outdir, prefix, threshold=50.0,
     # detect scenes
     scene_manager.detect_scenes(video)
     scene_list = scene_manager.get_scene_list()
+
+    # post-filter: discard any scene shorter than MIN_CLIP_SECS regardless of
+    # what the detector decided, so no sub-3s clips are ever written to disk.
+    MIN_CLIP_SECS = 3.0
+    before = len(scene_list)
+    scene_list = [s for s in scene_list if (s[1] - s[0]).get_seconds() >= MIN_CLIP_SECS]
+    print(f'Post-filter removed {before - len(scene_list)} clips under {MIN_CLIP_SECS}s '
+          f'({len(scene_list)} remaining).')
 
     # split/export scenes
     split_video_ffmpeg(
